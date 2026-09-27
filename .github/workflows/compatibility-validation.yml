@@ -1,0 +1,56 @@
+name: Combined OrdinaryDiffEq compatibility validation
+
+on:
+  push:
+    branches: [ci/validate-ordinarydiffeq-compat]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: combined-compatibility-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  downstream:
+    name: Existing ${{ matrix.group }} tests with companion dependency fixes
+    strategy:
+      fail-fast: false
+      matrix:
+        group: [Core1, Core5]
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      GROUP: ${{ matrix.group }}
+      JULIA_PKG_PRECOMPILE_AUTO: '0'
+      JULIA_NUM_PRECOMPILE_TASKS: '2'
+      OPENBLAS_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
+        with:
+          repository: xbtmkmmm5/OrdinaryDiffEq.jl
+          ref: 36cddc67fa85a9ba7690e604769c16d7b0c6ce40
+          path: .validation-deps/OrdinaryDiffEq
+      - uses: actions/checkout@v7
+        with:
+          repository: xbtmkmmm5/Mooncake.jl
+          ref: 6aed823de829d5bbc68448ecfc73c46cc0737c96
+          path: .validation-deps/Mooncake
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: '1.13.1'
+      - uses: julia-actions/cache@v3
+      - name: Run original downstream test group
+        shell: julia --color=yes --project=. {0}
+        run: |
+          using Pkg
+          ode = abspath(".validation-deps/OrdinaryDiffEq")
+          projects = filter(
+              path -> isfile(joinpath(path, "Project.toml")),
+              readdir(joinpath(ode, "lib"); join=true),
+          )
+          push!(projects, ode, abspath(".validation-deps/Mooncake"))
+          Pkg.develop([PackageSpec(path=path) for path in projects])
+          Pkg.update()
+          Pkg.test(; coverage=false)
